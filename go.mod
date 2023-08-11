@@ -1,4 +1,4 @@
-module gorillamuxlogic
+module github.com/arran4/gorillamuxlogic
 
 go 1.20
 
