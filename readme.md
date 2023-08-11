@@ -6,6 +6,7 @@ Simple primitive enabling logic like this:
 package main
 
 import (
+	. "github.com/arran4/gorillamuxlogic"
 	"github.com/gorilla/mux"
 )
 
