@@ -29,6 +29,10 @@ func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Installation
 
 To add this package to your project, run:
@@ -36,3 +40,4 @@ To add this package to your project, run:
 ```
 go get github.com/arran4/gorillamuxlogic
 ```
+
