@@ -19,6 +19,8 @@ func main() {
 }
 ```
 
+Examples of runnable programs can be found under the `examples/` directory.
+
 Provides functions:
 ```go
 func And(matchers ...mux.MatcherFunc) mux.MatcherFunc
@@ -29,6 +31,21 @@ func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
 
+<<<<<<< codex/add-example-for-nested-and/or-usage
+Nested logic example:
+
+```go
+mux.NewRouter().
+        HandleFunc("/articles/{id}/edit", articleEditPage).
+        MatcherFunc(
+                Or(
+                        And(RequiredScopes("administrator"), CommentAuthor()),
+                        And(RequiredScopes("editor"), Not(CommentAuthor())),
+                ),
+        ).
+        Methods("POST")
+```
+=======
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
@@ -42,3 +59,4 @@ go get github.com/arran4/gorillamuxlogic
 ```
 
 
+>>>>>>> main
