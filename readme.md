@@ -19,6 +19,8 @@ func main() {
 }
 ```
 
+Examples of runnable programs can be found under the `examples/` directory.
+
 Provides functions:
 ```go
 func And(matchers ...mux.MatcherFunc) mux.MatcherFunc
@@ -27,4 +29,18 @@ func Or(matchers ...mux.MatcherFunc) mux.MatcherFunc
 
 func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
+```
+
+Nested logic example:
+
+```go
+mux.NewRouter().
+        HandleFunc("/articles/{id}/edit", articleEditPage).
+        MatcherFunc(
+                Or(
+                        And(RequiredScopes("administrator"), CommentAuthor()),
+                        And(RequiredScopes("editor"), Not(CommentAuthor())),
+                ),
+        ).
+        Methods("POST")
 ```
