@@ -28,3 +28,11 @@ func Or(matchers ...mux.MatcherFunc) mux.MatcherFunc
 func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
+
+## Installation
+
+To add this package to your project, run:
+
+```
+go get github.com/arran4/gorillamuxlogic
+```
