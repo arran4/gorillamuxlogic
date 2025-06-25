@@ -31,6 +31,7 @@ func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
 
+<<<<<<< codex/add-example-for-nested-and/or-usage
 Nested logic example:
 
 ```go
@@ -44,3 +45,18 @@ mux.NewRouter().
         ).
         Methods("POST")
 ```
+=======
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## Installation
+
+To add this package to your project, run:
+
+```
+go get github.com/arran4/gorillamuxlogic
+```
+
+
+>>>>>>> main
