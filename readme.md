@@ -28,3 +28,6 @@ func Or(matchers ...mux.MatcherFunc) mux.MatcherFunc
 func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
+## License
+
+This project is licensed under the [MIT License](LICENSE).
