@@ -11,11 +11,11 @@ import (
 )
 
 func main() {
-	mux.NewRouter().
-		Use(UserMiddleware).
-		HandleFunc("/blog/{blog}/comment/{comment}/edit", blogsCommentEditPage).
-		MatcherFunc(Or(RequiredScopes("administrator"), CommentAuthor())).
-		Methods("POST")
+        r := mux.NewRouter()
+        r.Use(UserMiddleware)
+        r.HandleFunc("/blog/{blog}/comment/{comment}/edit", blogsCommentEditPage).
+                MatcherFunc(Or(RequiredScopes("administrator"), CommentAuthor())).
+                Methods("POST")
 }
 ```
 
@@ -31,7 +31,6 @@ func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 
 ```
 
-<<<<<<< codex/add-example-for-nested-and/or-usage
 Nested logic example:
 
 ```go
@@ -45,7 +44,7 @@ mux.NewRouter().
         ).
         Methods("POST")
 ```
-=======
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
@@ -57,6 +56,3 @@ To add this package to your project, run:
 ```
 go get github.com/arran4/gorillamuxlogic
 ```
-
-
->>>>>>> main
