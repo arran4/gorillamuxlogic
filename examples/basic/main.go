@@ -19,9 +19,9 @@ func CommentAuthor() mux.MatcherFunc {
 func blogsCommentEditPage(w http.ResponseWriter, r *http.Request) {}
 
 func main() {
-	mux.NewRouter().
-		Use(UserMiddleware).
-		HandleFunc("/blog/{blog}/comment/{comment}/edit", blogsCommentEditPage).
+	r := mux.NewRouter()
+	r.Use(UserMiddleware)
+	r.HandleFunc("/blog/{blog}/comment/{comment}/edit", blogsCommentEditPage).
 		MatcherFunc(Or(RequiredScopes("administrator"), CommentAuthor())).
 		Methods("POST")
 }
