@@ -1,5 +1,7 @@
 # Agent rules for generation:
-# https://arran4.com/post/2026/006-Github-CI-and-Deploy/
+# https://arran4.github.io/blog/post/2026/042-simplified-github-ci-release-safe/
+# Release safety details:
+# https://arran4.github.io/blog/post/2026/041-release-safe-single-owner-github-ci/
 name: CI/CD
 
 on:
@@ -100,13 +102,9 @@ jobs:
               fi
               ;;
             release)
-              run_release=true
               ;;
             workflow_dispatch)
               run_code_checks=true
-              if [[ "${{ inputs.mode }}" == release-* ]]; then
-                run_release=true
-              fi
               if [[ "${{ inputs.mode }}" == "monthly-maintenance" ]]; then
                 is_monthly=true
               fi
@@ -187,32 +185,15 @@ jobs:
       - name: Test
         run: go test ./...
 
-  publish-draft:
-    name: Publish draft release
+  publish-release:
+    name: Publish release
     needs: [route, go-checks]
     if: ${{ always() && needs.route.outputs.run_release == 'true' && (needs.go-checks.result == 'success' || needs.go-checks.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Publish draft GitHub release
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  promote-release:
-    name: Promote draft to published
-    needs: [publish-draft]
-    if: ${{ github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Promote release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == refs/tags/v* ]]; then
-            gh release edit "${{ github.ref_name }}" --draft=false
-          else
-            echo "Promotion step placeholder (gh api patch release draft=false)"
-          fi
