@@ -17,6 +17,29 @@ func makeMatcher(result bool, counter *int) mux.MatcherFunc {
 	}
 }
 
+// dummy handler for testing
+type dummyHandler struct {
+	id string
+}
+
+func (h dummyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {}
+
+// test matcher that mutates Handler
+func mutatingMatcherHandler(result bool, id string) mux.MatcherFunc {
+	return func(r *http.Request, m *mux.RouteMatch) bool {
+		m.Handler = dummyHandler{id: id}
+		return result
+	}
+}
+
+// test matcher that mutates Route
+func mutatingMatcherRoute(result bool, route *mux.Route) mux.MatcherFunc {
+	return func(r *http.Request, m *mux.RouteMatch) bool {
+		m.Route = route
+		return result
+	}
+}
+
 func newRequest() *http.Request {
 	req, _ := http.NewRequest("GET", "/", nil)
 	return req
@@ -116,6 +139,86 @@ func TestOr_RejectedBranchMutatesVars(t *testing.T) {
 	}
 }
 
+func TestNot_NeverLeaksHandlerOrRouteMutations(t *testing.T) {
+	req := newRequest()
+	dummyRoute := &mux.Route{}
+	m1 := And(mutatingMatcherHandler(true, "leaked"), mutatingMatcherRoute(true, dummyRoute))
+
+	match := &mux.RouteMatch{Handler: dummyHandler{id: "initial_handler"}, Route: nil}
+	combinator := Not(m1) // m1 returns true, Not returns false
+
+	if combinator(req, match) {
+		t.Error("expected Not to invert true to false")
+	}
+
+	if match.Handler == nil || match.Handler.(dummyHandler).id != "initial_handler" {
+		t.Error("Not leaked child Handler mutation")
+	}
+	if match.Route != nil {
+		t.Error("Not leaked child Route mutation")
+	}
+
+	m2 := And(mutatingMatcherHandler(false, "leaked_false"), mutatingMatcherRoute(false, dummyRoute))
+	combinator2 := Not(m2) // m2 returns false, Not returns true
+	match2 := &mux.RouteMatch{Handler: dummyHandler{id: "initial_handler"}, Route: nil}
+
+	if !combinator2(req, match2) {
+		t.Error("expected Not to invert false to true")
+	}
+
+	if match2.Handler == nil || match2.Handler.(dummyHandler).id != "initial_handler" {
+		t.Error("Not leaked child Handler mutation on true result")
+	}
+	if match2.Route != nil {
+		t.Error("Not leaked child Route mutation on true result")
+	}
+}
+
+func TestAnd_HandlerAndRouteState(t *testing.T) {
+	req := newRequest()
+	dummyRouteIn := &mux.Route{}
+	dummyRouteNew := &mux.Route{}
+
+	m1 := mutatingMatcherHandler(true, "new_handler")
+	m2 := mutatingMatcherRoute(true, dummyRouteNew)
+	m3 := makeMatcher(false, nil) // fails
+
+	match := &mux.RouteMatch{
+		Handler: dummyHandler{id: "initial_handler"},
+		Route:   dummyRouteIn,
+	}
+	combinator := And(m1, m2, m3)
+
+	if combinator(req, match) {
+		t.Error("expected And to return false")
+	}
+
+	if match.Handler == nil || match.Handler.(dummyHandler).id != "initial_handler" {
+		t.Error("failed And leaked Handler mutations")
+	}
+	if match.Route != dummyRouteIn {
+		t.Error("failed And leaked Route mutations")
+	}
+
+	// successful path
+	combinatorSuccess := And(m1, m2)
+	matchSuccess := &mux.RouteMatch{
+		Handler: dummyHandler{id: "initial_handler"},
+		Route:   dummyRouteIn,
+	}
+
+	if !combinatorSuccess(req, matchSuccess) {
+		t.Error("expected And to return true")
+	}
+
+	if matchSuccess.Handler == nil || matchSuccess.Handler.(dummyHandler).id != "new_handler" {
+		t.Error("successful And did not commit Handler mutations")
+	}
+	if matchSuccess.Route != dummyRouteNew {
+		t.Error("successful And did not commit Route mutations")
+	}
+}
+
 func TestOr_RejectedBranchMutatesMatchErr(t *testing.T) {
 	req := newRequest()
 	m1 := mutatingMatcherErr(false, mux.ErrMethodMismatch)
@@ -130,6 +233,32 @@ func TestOr_RejectedBranchMutatesMatchErr(t *testing.T) {
 
 	if match.MatchErr != nil {
 		t.Error("rejected branch leaked its MatchErr mutation")
+	}
+}
+
+func TestOr_RejectedBranchMutatesHandlerAndRoute(t *testing.T) {
+	req := newRequest()
+	dummyRoute1 := &mux.Route{}
+	dummyRoute2 := &mux.Route{}
+
+	m1 := And(mutatingMatcherHandler(false, "rejected_handler"), mutatingMatcherRoute(false, dummyRoute1))
+	m2 := And(mutatingMatcherHandler(true, "winning_handler"), mutatingMatcherRoute(true, dummyRoute2))
+
+	match := &mux.RouteMatch{}
+	combinator := Or(m1, m2)
+
+	if !combinator(req, match) {
+		t.Error("expected Or to return true")
+	}
+
+	if match.Handler == nil {
+		t.Fatal("expected Handler to be set")
+	}
+	if match.Handler.(dummyHandler).id != "winning_handler" {
+		t.Error("successful branch did not commit its Handler mutation")
+	}
+	if match.Route != dummyRoute2 {
+		t.Error("successful branch did not commit its Route mutation")
 	}
 }
 
