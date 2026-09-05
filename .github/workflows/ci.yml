@@ -35,6 +35,7 @@ on:
           - release-rc
           - release-alpha
           - monthly-maintenance
+          - publish-tag
       release_version_override:
         description: "Optional explicit release version (for example 2.4.0 or 2.4.0-rc.2)"
         required: false
@@ -105,12 +106,24 @@ jobs:
               ;;
             workflow_dispatch)
               run_code_checks=true
-              if [[ "${{ inputs.mode }}" == "monthly-maintenance" ]]; then
-                is_monthly=true
-              fi
-              if [[ "${{ inputs.mode }}" == "lint-fix" ]]; then
-                is_nightly=true
-              fi
+              case "${{ inputs.mode }}" in
+                monthly-maintenance)
+                  is_monthly=true
+                  ;;
+                lint-fix)
+                  is_nightly=true
+                  ;;
+                release-*)
+                  run_release=true
+                  ;;
+                publish-tag)
+                  if [[ "${{ github.ref_type }}" != "tag" || ! "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
+                    echo "publish-tag mode requires an eligible tag context (e.g. refs/tags/v*)" >&2
+                    exit 1
+                  fi
+                  run_release=true
+                  ;;
+              esac
               ;;
             schedule)
               run_code_checks=true
@@ -133,7 +146,7 @@ jobs:
   prepare-release-tag:
     name: Prepare release tag
     needs: [route]
-    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-') }}
+    if: ${{ needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
@@ -143,6 +156,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup git-tag-inc
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'publish-tag' }}
         uses: arran4/git-tag-inc-action@v1
         with:
           mode: install
@@ -151,8 +165,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "release_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "next_version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           MODE="${{ inputs.mode }}"
           OVERRIDE="${{ inputs.release_version_override }}"
+
+          if [[ "$MODE" == "publish-tag" ]]; then
+            echo "release_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "next_version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           git fetch --tags --force
 
@@ -181,8 +207,14 @@ jobs:
           }
 
           if git rev-parse "$next_tag" >/dev/null 2>&1; then
-            echo "Tag already exists: $next_tag" >&2
-            exit 1
+            REMOTE_TAG_SHA=$(git ls-remote --tags origin "refs/tags/$next_tag" | awk '{print $1}')
+            if [[ "$REMOTE_TAG_SHA" == "${GITHUB_SHA}" ]]; then
+              echo "Tag $next_tag exists and points to GITHUB_SHA. Safe to retry."
+            else
+              echo "Tag already exists and points to $REMOTE_TAG_SHA (expected ${GITHUB_SHA}): $next_tag" >&2
+              echo "To retry a failed publication for this exact version, ensure release_version_override is used and GITHUB_SHA matches." >&2
+              exit 1
+            fi
           fi
 
           echo "release_tag=$next_tag" >> "$GITHUB_OUTPUT"
@@ -192,31 +224,70 @@ jobs:
           IFS='.' read -r maj min pat <<< "$clean_tag"
           echo "next_version=${maj:-0}.${min:-0}.$(( ${pat:-0} + 1 ))-SNAPSHOT" >> "$GITHUB_OUTPUT"
 
-  manual-release-tag:
-    name: Push release tag
-    needs: [prepare-release-tag]
-    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.mode, 'release-') }}
+  release-context:
+    name: Release Context
+    needs: [route, prepare-release-tag, release-validation]
+    if: ${{ needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
+    outputs:
+      release_tag: ${{ steps.export.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
-      - name: Push prepared tag
-        env:
-          TAG: ${{ needs.prepare-release-tag.outputs.release_tag }}
+      - name: Normalize and push tag
+        id: export
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch --tags --force
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag already exists: $TAG" >&2
-            exit 1
+
+          TAG="${{ needs.prepare-release-tag.outputs.release_tag }}"
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            exit 0
           fi
-          git tag "$TAG"
-          git push origin "$TAG"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.mode }}" == "publish-tag" ]]; then
+            if [[ "${{ github.ref_type }}" != "tag" ]]; then
+              echo "Error: publish-tag mode invoked on a non-tag ref." >&2
+              exit 1
+            fi
+            echo "Running in internal publisher mode; tag is immutable context."
+            exit 0
+          fi
+
+          git fetch --tags --force
+          REMOTE_TAG_SHA=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+
+          if [[ -n "$REMOTE_TAG_SHA" ]]; then
+            if [[ "$REMOTE_TAG_SHA" == "${GITHUB_SHA}" ]]; then
+              echo "Tag $TAG already exists on remote and points to the correct SHA. Continuing safely."
+            else
+              echo "Tag $TAG already exists on remote but points to a different commit ($REMOTE_TAG_SHA). Failing." >&2
+              exit 1
+            fi
+          else
+            git tag "$TAG" "${GITHUB_SHA}"
+            git push origin "$TAG" || (
+              VERIFY_SHA=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+              if [[ "$VERIFY_SHA" == "${GITHUB_SHA}" ]]; then
+                echo "Tag successfully verified on remote after push error."
+              else
+                echo "Tag push failed and remote verification failed." >&2
+                exit 1
+              fi
+            )
+          fi
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            gh workflow run "ci.yml" --ref "$TAG" -f mode="publish-tag"
+          fi
 
   discover:
     name: Discover capabilities and cost profile
@@ -273,16 +344,30 @@ jobs:
       - name: Test
         run: go test ./...
 
+  release-validation:
+    name: Release Validation Gate
+    needs: [route, discover, go-checks, gitleaks]
+    if: |
+      !failure() && !cancelled() &&
+      needs.route.result == 'success' &&
+      needs.discover.result == 'success' &&
+      (needs.route.outputs.run_code_checks != 'true' || needs.gitleaks.result == 'success') &&
+      (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All required checks passed."
+
   publish-release:
     name: Publish release
-    needs: [route, go-checks]
-    if: ${{ always() && needs.route.outputs.run_release == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (needs.go-checks.result == 'success' || needs.go-checks.result == 'skipped') }}
+    needs: [route, discover, go-checks, release-context]
+    if: ${{ needs.route.outputs.run_release == 'true' && github.ref_type == 'tag' && (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-test') }}
+          tag_name: ${{ needs.release-context.outputs.release_tag }}
+          prerelease: ${{ contains(needs.release-context.outputs.release_tag, '-rc') || contains(needs.release-context.outputs.release_tag, '-alpha') || contains(needs.release-context.outputs.release_tag, '-beta') || contains(needs.release-context.outputs.release_tag, '-test') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
