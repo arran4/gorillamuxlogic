@@ -227,7 +227,7 @@ jobs:
   release-context:
     name: Release Context
     needs: [route, prepare-release-tag, release-validation]
-    if: ${{ !failure() && !cancelled() && needs.route.outputs.run_release == 'true' }}
+    if: ${{ needs.route.outputs.run_release == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -351,16 +351,16 @@ jobs:
       !failure() && !cancelled() &&
       needs.route.result == 'success' &&
       needs.discover.result == 'success' &&
-      (needs.route.outputs.run_code_checks != 'true' || needs.gitleaks.result == 'success' || needs.gitleaks.result == 'skipped') &&
-      (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success' || needs.go-checks.result == 'skipped')
+      (needs.route.outputs.run_code_checks != 'true' || needs.gitleaks.result == 'success') &&
+      (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed."
 
   publish-release:
     name: Publish release
-    needs: [route, go-checks, release-context]
-    if: ${{ !failure() && !cancelled() && needs.route.outputs.run_release == 'true' && github.ref_type == 'tag' && (needs.go-checks.result == 'success' || needs.go-checks.result == 'skipped') }}
+    needs: [route, discover, go-checks, release-context]
+    if: ${{ needs.route.outputs.run_release == 'true' && github.ref_type == 'tag' && (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish GitHub release
