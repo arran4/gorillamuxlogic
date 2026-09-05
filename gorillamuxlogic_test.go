@@ -17,6 +17,15 @@ func makeMatcher(result bool, counter *int) mux.MatcherFunc {
 	}
 }
 
+// test matcher that mutates both Handler and Route
+func mutatingMatcherHandlerAndRoute(result bool, id string, route *mux.Route) mux.MatcherFunc {
+	return func(r *http.Request, m *mux.RouteMatch) bool {
+		m.Handler = dummyHandler{id: id}
+		m.Route = route
+		return result
+	}
+}
+
 // dummy handler for testing
 type dummyHandler struct {
 	id string
@@ -139,10 +148,37 @@ func TestOr_RejectedBranchMutatesVars(t *testing.T) {
 	}
 }
 
+func TestNestedCombinationsHandlerAndRoute(t *testing.T) {
+	req := newRequest()
+	dummyRoute1 := &mux.Route{}
+	dummyRoute2 := &mux.Route{}
+
+	m1 := And(mutatingMatcherHandlerAndRoute(true, "h1", dummyRoute1), makeMatcher(false, nil))
+	m2 := And(mutatingMatcherHandlerAndRoute(true, "h2", dummyRoute2), makeMatcher(true, nil))
+
+	match := &mux.RouteMatch{
+		Handler: dummyHandler{id: "initial_handler"},
+		Route:   nil,
+	}
+	combinator := Or(m1, m2)
+
+	if !combinator(req, match) {
+		t.Error("expected nested combinator to return true")
+	}
+
+	if match.Handler == nil || match.Handler.(dummyHandler).id != "h2" {
+		t.Error("successful nested branch did not commit handler mutations")
+	}
+	if match.Route != dummyRoute2 {
+		t.Error("successful nested branch did not commit route mutations")
+	}
+}
+
 func TestNot_NeverLeaksHandlerOrRouteMutations(t *testing.T) {
 	req := newRequest()
 	dummyRoute := &mux.Route{}
-	m1 := And(mutatingMatcherHandler(true, "leaked"), mutatingMatcherRoute(true, dummyRoute))
+	// Use the combined mutator so both mutations definitely occur before the boolean result is returned.
+	m1 := mutatingMatcherHandlerAndRoute(true, "leaked", dummyRoute)
 
 	match := &mux.RouteMatch{Handler: dummyHandler{id: "initial_handler"}, Route: nil}
 	combinator := Not(m1) // m1 returns true, Not returns false
@@ -158,7 +194,7 @@ func TestNot_NeverLeaksHandlerOrRouteMutations(t *testing.T) {
 		t.Error("Not leaked child Route mutation")
 	}
 
-	m2 := And(mutatingMatcherHandler(false, "leaked_false"), mutatingMatcherRoute(false, dummyRoute))
+	m2 := mutatingMatcherHandlerAndRoute(false, "leaked_false", dummyRoute)
 	combinator2 := Not(m2) // m2 returns false, Not returns true
 	match2 := &mux.RouteMatch{Handler: dummyHandler{id: "initial_handler"}, Route: nil}
 
@@ -241,8 +277,8 @@ func TestOr_RejectedBranchMutatesHandlerAndRoute(t *testing.T) {
 	dummyRoute1 := &mux.Route{}
 	dummyRoute2 := &mux.Route{}
 
-	m1 := And(mutatingMatcherHandler(false, "rejected_handler"), mutatingMatcherRoute(false, dummyRoute1))
-	m2 := And(mutatingMatcherHandler(true, "winning_handler"), mutatingMatcherRoute(true, dummyRoute2))
+	m1 := mutatingMatcherHandlerAndRoute(false, "rejected_handler", dummyRoute1)
+	m2 := mutatingMatcherHandlerAndRoute(true, "winning_handler", dummyRoute2)
 
 	match := &mux.RouteMatch{}
 	combinator := Or(m1, m2)
