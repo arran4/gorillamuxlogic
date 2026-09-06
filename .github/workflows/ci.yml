@@ -73,75 +73,20 @@ jobs:
       is_monthly: ${{ steps.route.outputs.is_monthly }}
       is_nightly: ${{ steps.route.outputs.is_nightly }}
     steps:
+      - uses: actions/checkout@v4
+      - name: Test routing logic
+        run: ./.github/scripts/route_test.sh
       - id: route
         shell: bash
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          INPUTS_MODE: ${{ inputs.mode }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          set -euo pipefail
-
-          run_code_checks=false
-          run_pr_meta_checks=false
-          run_cleanup=false
-          run_release=false
-          is_monthly=false
-          is_nightly=false
-
-          case "${{ github.event_name }}" in
-            push)
-              run_code_checks=true
-              if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-                run_release=true
-              fi
-              ;;
-            pull_request)
-              if [[ "${{ github.event.action }}" == "closed" ]]; then
-                run_cleanup=true
-              else
-                run_pr_meta_checks=true
-                if [[ "${{ github.event.pull_request.head.repo.full_name || '' }}" != "${{ github.repository }}" ]]; then
-                  run_code_checks=true
-                fi
-              fi
-              ;;
-            release)
-              ;;
-            workflow_dispatch)
-              run_code_checks=true
-              case "${{ inputs.mode }}" in
-                monthly-maintenance)
-                  is_monthly=true
-                  ;;
-                lint-fix)
-                  is_nightly=true
-                  ;;
-                release-*)
-                  run_release=true
-                  ;;
-                publish-tag)
-                  if [[ "${{ github.ref_type }}" != "tag" || ! "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
-                    echo "publish-tag mode requires an eligible tag context (e.g. refs/tags/v*)" >&2
-                    exit 1
-                  fi
-                  run_release=true
-                  ;;
-              esac
-              ;;
-            schedule)
-              run_code_checks=true
-              if [[ "${{ github.event.schedule }}" == "17 3 1 * *" ]]; then
-                is_monthly=true
-              fi
-              if [[ "${{ github.event.schedule }}" == "41 2 * * *" ]]; then
-                is_nightly=true
-              fi
-              ;;
-          esac
-
-          echo "run_code_checks=$run_code_checks" >> "$GITHUB_OUTPUT"
-          echo "run_pr_meta_checks=$run_pr_meta_checks" >> "$GITHUB_OUTPUT"
-          echo "run_cleanup=$run_cleanup" >> "$GITHUB_OUTPUT"
-          echo "run_release=$run_release" >> "$GITHUB_OUTPUT"
-          echo "is_monthly=$is_monthly" >> "$GITHUB_OUTPUT"
-          echo "is_nightly=$is_nightly" >> "$GITHUB_OUTPUT"
+          ./.github/scripts/route.sh
 
   prepare-release-tag:
     name: Prepare release tag
