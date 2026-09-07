@@ -55,11 +55,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pull-requests: write
-  checks: write
-  packages: write
-  security-events: write
+  contents: read
 
 jobs:
   route:
@@ -272,6 +268,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   go-checks:
     name: Go Tests and Checks
@@ -307,6 +304,8 @@ jobs:
     needs: [route, discover, go-checks, release-context]
     if: ${{ needs.route.outputs.run_release == 'true' && github.ref_type == 'tag' && (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
