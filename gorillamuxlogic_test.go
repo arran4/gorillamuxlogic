@@ -122,6 +122,17 @@ func TestAnd_NilPanicsBeforeShortCircuit(t *testing.T) {
 	And(makeMatcher(false, nil), nil)
 }
 
+func TestOr_NilPanicsBeforeShortCircuit(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected Or to panic at construction time")
+		}
+	}()
+	// Although the first matcher is true (and would normally short-circuit execution),
+	// we expect construction to panic before execution even begins.
+	Or(makeMatcher(true, nil), nil)
+}
+
 func TestOr_Empty(t *testing.T) {
 	req := newRequest()
 	m := Or() // Zero matchers
