@@ -4,16 +4,30 @@
 package gorillamuxlogic
 
 import (
-	"github.com/gorilla/mux"
+	"fmt"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 // And returns a matcher that succeeds only when every provided matcher
 // evaluates to true for the current request and route match.
+//
+// If zero matchers are provided, it returns true immediately, acting as a match-all.
+// Warning: When dynamically constructing matchers for authorization or filtering,
+// ensure the slice is not inadvertently empty, as an empty And() will allow all requests.
+//
+// If any provided matcher is nil, And panics immediately at construction time.
+//
 // It evaluates matchers in order against a working state. Successful child
 // mutations may accumulate. If any child returns false, the caller-visible
 // mux.RouteMatch is restored to its exact incoming state.
 func And(matchers ...mux.MatcherFunc) mux.MatcherFunc {
+	for i, m := range matchers {
+		if m == nil {
+			panic(fmt.Sprintf("gorillamuxlogic: And() called with nil matcher at index %d", i))
+		}
+	}
 	return func(request *http.Request, match *mux.RouteMatch) bool {
 		workingMatch := cloneRouteMatch(match)
 		for _, m := range matchers {
@@ -28,11 +42,21 @@ func And(matchers ...mux.MatcherFunc) mux.MatcherFunc {
 
 // Or returns a matcher that succeeds when any of the provided matchers
 // evaluate to true for the current request and route match.
+//
+// If zero matchers are provided, it returns false immediately, acting as a match-none.
+//
+// If any provided matcher is nil, Or panics immediately at construction time.
+//
 // It evaluates each branch against an isolated mux.RouteMatch state,
 // discarding state from false branches. When a branch succeeds, only the
 // winning branch's resulting state is committed. Short-circuit ordering
 // is preserved.
 func Or(matchers ...mux.MatcherFunc) mux.MatcherFunc {
+	for i, m := range matchers {
+		if m == nil {
+			panic(fmt.Sprintf("gorillamuxlogic: Or() called with nil matcher at index %d", i))
+		}
+	}
 	return func(request *http.Request, match *mux.RouteMatch) bool {
 		for _, m := range matchers {
 			branchMatch := cloneRouteMatch(match)
@@ -46,9 +70,15 @@ func Or(matchers ...mux.MatcherFunc) mux.MatcherFunc {
 }
 
 // Not returns a matcher that inverts the result of the provided matcher.
+//
+// If the provided matcher is nil, Not panics immediately at construction time.
+//
 // It evaluates the child matcher against an isolated state and never commits
 // the child's mux.RouteMatch mutations, only returning its inverted boolean result.
 func Not(matcher mux.MatcherFunc) mux.MatcherFunc {
+	if matcher == nil {
+		panic("gorillamuxlogic: Not() called with nil matcher")
+	}
 	return func(request *http.Request, match *mux.RouteMatch) bool {
 		isolatedMatch := cloneRouteMatch(match)
 		return !matcher(request, isolatedMatch)

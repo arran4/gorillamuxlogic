@@ -94,6 +94,71 @@ func TestOr_AllFalse(t *testing.T) {
 	}
 }
 
+func TestAnd_Empty(t *testing.T) {
+	req := newRequest()
+	m := And() // Zero matchers
+	if !m(req, &mux.RouteMatch{}) {
+		t.Error("expected And with zero matchers to return true")
+	}
+}
+
+func TestAnd_NilPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected And to panic with nil matcher")
+		}
+	}()
+	And(makeMatcher(true, nil), nil)
+}
+
+func TestAnd_NilPanicsBeforeShortCircuit(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected And to panic at construction time")
+		}
+	}()
+	// Although the first matcher is false (and would normally short-circuit execution),
+	// we expect construction to panic before execution even begins.
+	And(makeMatcher(false, nil), nil)
+}
+
+func TestOr_NilPanicsBeforeShortCircuit(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected Or to panic at construction time")
+		}
+	}()
+	// Although the first matcher is true (and would normally short-circuit execution),
+	// we expect construction to panic before execution even begins.
+	Or(makeMatcher(true, nil), nil)
+}
+
+func TestOr_Empty(t *testing.T) {
+	req := newRequest()
+	m := Or() // Zero matchers
+	if m(req, &mux.RouteMatch{}) {
+		t.Error("expected Or with zero matchers to return false")
+	}
+}
+
+func TestOr_NilPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected Or to panic with nil matcher")
+		}
+	}()
+	Or(makeMatcher(false, nil), nil)
+}
+
+func TestNot_NilPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected Not to panic with nil matcher")
+		}
+	}()
+	Not(nil)
+}
+
 func TestNot_InvertsResult(t *testing.T) {
 	req := newRequest()
 	t1 := Not(makeMatcher(true, nil))
