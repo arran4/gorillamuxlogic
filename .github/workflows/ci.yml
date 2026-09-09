@@ -14,41 +14,29 @@ on:
       - 'v*.*.*-beta*'
       - 'test-*'
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master]
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       mode:
         description: "Pipeline mode"
         required: true
-        default: "lint-fix"
+        default: "validate"
         type: choice
         options:
-          - lint-fix
-          - build
+          - validate
           - release-major
           - release-minor
           - release-patch
           - release-test
           - release-rc
           - release-alpha
-          - monthly-maintenance
           - publish-tag
       release_version_override:
         description: "Optional explicit release version (for example 2.4.0 or 2.4.0-rc.2)"
         required: false
         default: ""
         type: string
-      allow_prs:
-        description: "Allow automation to open pull requests"
-        required: false
-        default: true
-        type: boolean
-  schedule:
-    - cron: '17 3 1 * *'
-    - cron: '41 2 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -63,11 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_code_checks: ${{ steps.route.outputs.run_code_checks }}
-      run_pr_meta_checks: ${{ steps.route.outputs.run_pr_meta_checks }}
-      run_cleanup: ${{ steps.route.outputs.run_cleanup }}
       run_release: ${{ steps.route.outputs.run_release }}
-      is_monthly: ${{ steps.route.outputs.is_monthly }}
-      is_nightly: ${{ steps.route.outputs.is_nightly }}
     steps:
       - uses: actions/checkout@v4
       - name: Test routing logic
@@ -231,11 +215,10 @@ jobs:
           fi
 
   discover:
-    name: Discover capabilities and cost profile
+    name: Discover capabilities
     needs: route
     runs-on: ubuntu-latest
     outputs:
-      profile: ${{ steps.profile.outputs.profile }}
       has_go: ${{ steps.detect.outputs.has_go }}
     steps:
       - uses: actions/checkout@v4
@@ -245,16 +228,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "has_go=true" >> "$GITHUB_OUTPUT"
-
-      - id: profile
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
-            echo "profile=private" >> "$GITHUB_OUTPUT"
-          else
-            echo "profile=public" >> "$GITHUB_OUTPUT"
-          fi
 
   gitleaks:
     name: Secret scan

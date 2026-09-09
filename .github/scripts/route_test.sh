@@ -7,7 +7,6 @@ run_test() {
   local test_name="$1"
   local expected_code_checks="$2"
   local expected_release="$3"
-  local expected_cleanup="$4"
 
   # Ensure clean env per test run
   export GITHUB_OUTPUT=$(mktemp)
@@ -21,7 +20,6 @@ run_test() {
 
   local actual_code_checks=$(grep "^run_code_checks=" "$GITHUB_OUTPUT" | cut -d'=' -f2)
   local actual_release=$(grep "^run_release=" "$GITHUB_OUTPUT" | cut -d'=' -f2)
-  local actual_cleanup=$(grep "^run_cleanup=" "$GITHUB_OUTPUT" | cut -d'=' -f2)
 
   local failed=false
 
@@ -32,11 +30,6 @@ run_test() {
 
   if [[ "$actual_release" != "$expected_release" ]]; then
     echo "FAILED: $test_name - Expected run_release=$expected_release, got $actual_release"
-    failed=true
-  fi
-
-  if [[ "$actual_cleanup" != "$expected_cleanup" ]]; then
-    echo "FAILED: $test_name - Expected run_cleanup=$expected_cleanup, got $actual_cleanup"
     failed=true
   fi
 
@@ -53,33 +46,34 @@ run_test() {
 export GITHUB_EVENT_NAME="pull_request"
 export GITHUB_EVENT_ACTION="opened"
 # GITHUB_REPOSITORY is same as fork context but we aren't using that anymore, but we can set it
-run_test "Same-repository PR" "true" "false" "false"
+run_test "Same-repository PR" "true" "false"
 
 # 2. Fork PR
 export GITHUB_EVENT_NAME="pull_request"
 export GITHUB_EVENT_ACTION="opened"
-run_test "Fork PR" "true" "false" "false"
+run_test "Fork PR" "true" "false"
 
-# 3. Closed PR
-export GITHUB_EVENT_NAME="pull_request"
-export GITHUB_EVENT_ACTION="closed"
-run_test "Closed PR" "false" "false" "true"
-
-# 4. Push to main
+# 3. Push to main
 export GITHUB_EVENT_NAME="push"
 export GITHUB_REF="refs/heads/main"
 export GITHUB_EVENT_ACTION=""
-run_test "Push to main" "true" "false" "false"
+run_test "Push to main" "true" "false"
 
-# 5. v* tag push
+# 4. v* tag push
 export GITHUB_EVENT_NAME="push"
 export GITHUB_REF="refs/tags/v1.0.0"
-run_test "v* tag push" "true" "true" "false"
+run_test "v* tag push" "true" "true"
 
-# 6. Manual release dispatch
+# 5. Manual release dispatch
 export GITHUB_EVENT_NAME="workflow_dispatch"
 export GITHUB_REF="refs/heads/main"
 export INPUTS_MODE="release-minor"
-run_test "Manual release dispatch" "true" "true" "false"
+run_test "Manual release dispatch" "true" "true"
+
+# 6. Manual validate dispatch
+export GITHUB_EVENT_NAME="workflow_dispatch"
+export GITHUB_REF="refs/heads/main"
+export INPUTS_MODE="validate"
+run_test "Manual validate dispatch" "true" "false"
 
 echo "All tests passed successfully!"
