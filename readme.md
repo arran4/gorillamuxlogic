@@ -58,6 +58,13 @@ The combinators have specific behavior regarding empty and `nil` inputs to ensur
 - `Or()` with zero matchers returns a matcher that always returns `false`.
 - `nil` matchers provided to `And`, `Or`, or `Not` are considered programmer errors. Passing a `nil` `mux.MatcherFunc` will cause an immediate panic during route construction time, pinpointing the invalid matcher, rather than failing intermittently later during request processing.
 
+## Go Version Compatibility
+
+- **Minimum Supported Version:** Go 1.21.
+- **Currently Tested Versions:** Go 1.21, Go 1.26 (oldstable), and Go 1.27 (stable).
+- **Static Analysis (vet):** Only runs on the latest stable version (Go 1.27).
+- **Release Verification:** The release gate in CI explicitly requires the success of tests across the entire version matrix before publishing.
+
 ## Installation
 
 To add this package to your project, run:

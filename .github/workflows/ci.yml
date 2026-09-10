@@ -248,13 +248,17 @@ jobs:
     needs: [route, discover]
     if: ${{ needs.route.outputs.run_code_checks == 'true' && needs.discover.outputs.has_go == 'true' }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.26', '1.27']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: ${{ matrix.go-version }}
       - name: Vet
+        if: ${{ matrix.go-version == '1.27' }}
         run: go vet ./...
       - name: Test
         run: go test ./...
