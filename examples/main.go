@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	logic "github.com/arran4/gorillamuxlogic"
@@ -41,5 +42,14 @@ func main() {
 		HeaderEquals("X-Block", "true"),
 	))
 
-	http.ListenAndServe(":8080", r)
+	fmt.Println("Server listening on :8080")
+	fmt.Println("Try these curl commands:")
+	fmt.Println("  curl -H 'X-One: 1' -H 'X-Two: 2' http://localhost:8080/and")
+	fmt.Println("  curl -H 'X-Alpha: A' http://localhost:8080/or")
+	fmt.Println("  curl http://localhost:8080/not")
+	fmt.Println("  curl -H 'X-Block: true' http://localhost:8080/not  # This will 404")
+
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
 }
