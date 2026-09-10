@@ -37,6 +37,8 @@ on:
         required: false
         default: ""
         type: string
+  schedule:
+    - cron: '0 19 1 * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -53,20 +55,53 @@ jobs:
       run_code_checks: ${{ steps.route.outputs.run_code_checks }}
       run_release: ${{ steps.route.outputs.run_release }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Test routing logic
-        run: ./.github/scripts/route_test.sh
       - id: route
         shell: bash
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
-          GITHUB_EVENT_ACTION: ${{ github.event.action }}
           INPUTS_MODE: ${{ inputs.mode }}
           GITHUB_REF_TYPE: ${{ github.ref_type }}
-          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
-          ./.github/scripts/route.sh
+          set -euo pipefail
+
+          run_code_checks=false
+          run_release=false
+
+          case "${GITHUB_EVENT_NAME:-}" in
+            push)
+              run_code_checks=true
+              if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+                run_release=true
+              fi
+              ;;
+            pull_request)
+              run_code_checks=true
+              ;;
+            workflow_dispatch)
+              run_code_checks=true
+              case "${INPUTS_MODE:-}" in
+                validate)
+                  ;;
+                release-*)
+                  run_release=true
+                  ;;
+                publish-tag)
+                  if [[ "${GITHUB_REF_TYPE:-}" != "tag" || ! "${GITHUB_REF:-}" =~ ^refs/tags/v.* ]]; then
+                    echo "publish-tag mode requires an eligible tag context (e.g. refs/tags/v*)" >&2
+                    exit 1
+                  fi
+                  run_release=true
+                  ;;
+              esac
+              ;;
+            schedule)
+              run_code_checks=true
+              ;;
+          esac
+
+          echo "run_code_checks=$run_code_checks" >> "$GITHUB_OUTPUT"
+          echo "run_release=$run_release" >> "$GITHUB_OUTPUT"
 
   prepare-release-tag:
     name: Prepare release tag
@@ -259,15 +294,34 @@ jobs:
       - name: Test
         run: go test ./...
 
+  scheduled-dependency-check:
+    name: Scheduled Dependency Check
+    needs: [route, discover]
+    if: ${{ github.event_name == 'schedule' && needs.discover.outputs.has_go == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Update dependencies
+        run: go get -u ./... && go mod tidy
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
   release-validation:
     name: Release Validation Gate
-    needs: [route, discover, go-checks, gitleaks]
+    needs: [route, discover, go-checks, gitleaks, scheduled-dependency-check]
     if: |
       !failure() && !cancelled() &&
       needs.route.result == 'success' &&
       needs.discover.result == 'success' &&
       (needs.route.outputs.run_code_checks != 'true' || needs.gitleaks.result == 'success') &&
-      (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success')
+      (needs.discover.outputs.has_go != 'true' || needs.go-checks.result == 'success') &&
+      (github.event_name != 'schedule' || needs.scheduled-dependency-check.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed."
