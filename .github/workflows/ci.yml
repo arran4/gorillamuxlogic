@@ -13,6 +13,11 @@ on:
     - cron: '17 3 1 * *'
   workflow_dispatch:
     inputs:
+      allow_prs:
+        description: "Allow PR creation for maintenance/fixes"
+        required: false
+        default: true
+        type: boolean
       mode:
         description: "Pipeline mode"
         required: true
@@ -20,6 +25,7 @@ on:
         type: choice
         options:
           - validate
+          - lint-fix
           - release-major
           - release-minor
           - release-patch
@@ -50,6 +56,7 @@ jobs:
       run_release: ${{ steps.route.outputs.run_release }}
       run_publisher: ${{ steps.route.outputs.run_publisher }}
       run_maintenance: ${{ steps.route.outputs.run_maintenance }}
+      run_autofix: ${{ steps.route.outputs.run_autofix }}
       mode: ${{ steps.route.outputs.mode }}
     steps:
       - id: route
@@ -64,6 +71,7 @@ jobs:
           run_release=false
           run_publisher=false
           run_maintenance=false
+          run_autofix=false
           mode="validate"
 
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
@@ -72,10 +80,15 @@ jobs:
             if [[ "${{ github.event.schedule }}" == "17 3 1 * *" ]]; then
                run_maintenance=true
                mode="monthly-maintenance"
+            else
+               run_autofix=true
+               mode="lint-fix"
             fi
           elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             mode="${INPUT_MODE:-validate}"
-            if [[ "$mode" == "publish-tag" ]]; then
+            if [[ "$mode" == "lint-fix" ]]; then
+               run_autofix=true
+            elif [[ "$mode" == "publish-tag" ]]; then
                if [[ "$REF_TYPE" == "tag" && "$GITHUB_REF" == refs/tags/v* ]]; then
                   run_code_checks=false
                   run_publisher=true
@@ -96,7 +109,33 @@ jobs:
           echo "run_release=$run_release" >> "$GITHUB_OUTPUT"
           echo "run_publisher=$run_publisher" >> "$GITHUB_OUTPUT"
           echo "run_maintenance=$run_maintenance" >> "$GITHUB_OUTPUT"
+          echo "run_autofix=$run_autofix" >> "$GITHUB_OUTPUT"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+  autofix:
+    name: Autofix Formatting
+    needs: [route]
+    if: ${{ needs.route.outputs.run_autofix == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go fmt ./...
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - run: golangci-lint run --fix
+      - name: Create Pull Request
+        if: ${{ github.event_name == 'schedule' || inputs.allow_prs != false }}
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "style: auto-format code and lint fixes"
+          title: "style: auto-format code and lint fixes"
+          branch: automation/lint-fix
+          delete-branch: true
 
   maintenance:
     name: Monthly Maintenance
@@ -107,14 +146,15 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go get -u ./... && go mod tidy
       - run: go vet ./...
       - run: go test ./...
       - name: Create Pull Request
+        if: ${{ github.event_name == 'schedule' || inputs.allow_prs != false }}
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "chore(deps): update dependencies"
@@ -128,10 +168,10 @@ jobs:
     if: ${{ needs.route.outputs.run_code_checks == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
@@ -143,20 +183,20 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.23', '1.24']
+        go-version: ['1.21', '1.26', '1.27']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
       - name: Format
-        if: ${{ matrix.go-version == '1.24' }}
+        if: ${{ matrix.go-version == '1.27' }}
         run: |
           gofmt -s -w .
           git diff --exit-code
       - name: Vet
-        if: ${{ matrix.go-version == '1.24' }}
+        if: ${{ matrix.go-version == '1.27' }}
         run: go vet ./...
       - name: Test
         run: go test ./...
@@ -183,10 +223,10 @@ jobs:
       contents: write
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Install git-tag-inc
@@ -294,9 +334,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           tag_name: ${{ github.ref_name }}
