@@ -61,8 +61,8 @@ The combinators have specific behavior regarding empty and `nil` inputs to ensur
 ## Go Version Compatibility
 
 - **Minimum Supported Version:** Go 1.21.
-- **Currently Tested Versions:** Go 1.21, Go 1.23 (oldstable), and Go 1.24 (stable).
-- **Static Analysis (vet):** Only runs on the latest stable version (Go 1.24).
+- **Currently Tested Versions:** Go 1.21, Go 1.26 (oldstable), and Go 1.27 (stable).
+- **Static Analysis (vet):** Only runs on the latest stable version (Go 1.27).
 - **Release Verification:** The release gate in CI explicitly requires the success of tests across the entire version matrix before publishing.
 
 ## Installation

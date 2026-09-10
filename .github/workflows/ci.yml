@@ -250,7 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.23', '1.24']
+        go-version: ['1.21', '1.26', '1.27']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -258,7 +258,7 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
       - name: Vet
-        if: ${{ matrix.go-version == '1.24' }}
+        if: ${{ matrix.go-version == '1.27' }}
         run: go vet ./...
       - name: Test
         run: go test ./...
