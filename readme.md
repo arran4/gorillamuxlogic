@@ -40,6 +40,20 @@ func main() {
 
 Examples of runnable programs can be found under the `examples/` directory.
 
+You can observe the deterministic output by running them directly:
+
+```bash
+go run ./examples/basic
+# Outputs matched/unmatched requests showing Or() and And() combinations
+
+go run ./examples/advanced
+# Outputs matched/unmatched requests demonstrating nested And(), Or(), and Not()
+
+go run ./examples
+# Starts a long-running server demonstrating real HTTP requests
+# e.g., run: curl -H 'X-One: 1' -H 'X-Two: 2' http://localhost:8080/and
+```
+
 Provides functions:
 ```go
 func And(matchers ...mux.MatcherFunc) mux.MatcherFunc

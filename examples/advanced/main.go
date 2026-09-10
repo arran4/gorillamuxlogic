@@ -44,9 +44,9 @@ func main() {
 	// Rule:
 	//   1. Must be a GET request.
 	//   2. AND (
-	//        (Has "admin=true" query param)
+	//        (Has "admin" query param)
 	//        OR
-	//        (Has Header "X-Role=manager" AND NOT (Has "draft=true" query param))
+	//        (Has Header "X-Role=manager" AND NOT (Has "draft" query param))
 	//      )
 	r.HandleFunc("/report", reportPage).
 		MatcherFunc(
@@ -65,13 +65,13 @@ func main() {
 	// Demonstration using httptest to show actual behavior without starting a server.
 	requests := []*http.Request{
 		// 1. GET with admin param -> Matches
-		createRequest("GET", "/report?admin=true", ""),
+		createRequest("GET", "/report?admin=1", ""),
 		// 2. POST with admin param -> Does NOT match (wrong method)
-		createRequest("POST", "/report?admin=true", ""),
+		createRequest("POST", "/report?admin=1", ""),
 		// 3. GET with manager role, not draft -> Matches
 		createRequest("GET", "/report", "manager"),
 		// 4. GET with manager role, but is draft -> Does NOT match (Not(draft) fails)
-		createRequest("GET", "/report?draft=true", "manager"),
+		createRequest("GET", "/report?draft=1", "manager"),
 		// 5. GET with no role or params -> Does NOT match
 		createRequest("GET", "/report", ""),
 	}
