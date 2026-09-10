@@ -8,14 +8,33 @@ package main
 import (
 	. "github.com/arran4/gorillamuxlogic"
 	"github.com/gorilla/mux"
+	"net/http"
 )
 
+// HeaderEquals is a request-dependent predicate that checks if a header matches a value.
+func HeaderEquals(name, value string) mux.MatcherFunc {
+	return func(r *http.Request, m *mux.RouteMatch) bool {
+		return r.Header.Get(name) == value
+	}
+}
+
+func actionPage(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Action allowed"))
+}
+
 func main() {
-        r := mux.NewRouter()
-        r.Use(UserMiddleware)
-        r.HandleFunc("/blog/{blog}/comment/{comment}/edit", blogsCommentEditPage).
-                MatcherFunc(Or(RequiredScopes("administrator"), CommentAuthor())).
-                Methods("POST")
+	r := mux.NewRouter()
+
+	// An example demonstrating `Or` and `And` combining conditions.
+	r.HandleFunc("/action", actionPage).
+		MatcherFunc(Or(
+			HeaderEquals("X-Role", "administrator"),
+			And(
+				HeaderEquals("X-Role", "user"),
+				func(r *http.Request, m *mux.RouteMatch) bool { return r.Method == "GET" },
+			),
+		))
 }
 ```
 
@@ -34,15 +53,29 @@ func Not(matcher mux.MatcherFunc) mux.MatcherFunc
 Nested logic example:
 
 ```go
+// HasQueryParam checks for the presence of a query parameter.
+func HasQueryParam(param string) mux.MatcherFunc {
+	return func(r *http.Request, m *mux.RouteMatch) bool {
+		return r.URL.Query().Has(param)
+	}
+}
+
+// ... HeaderEquals from above ...
+
 mux.NewRouter().
-        HandleFunc("/articles/{id}/edit", articleEditPage).
-        MatcherFunc(
-                Or(
-                        And(RequiredScopes("administrator"), CommentAuthor()),
-                        And(RequiredScopes("editor"), Not(CommentAuthor())),
-                ),
-        ).
-        Methods("POST")
+	HandleFunc("/report", reportPage).
+	MatcherFunc(
+		And(
+			func(r *http.Request, m *mux.RouteMatch) bool { return r.Method == "GET" },
+			Or(
+				HasQueryParam("admin"),
+				And(
+					HeaderEquals("X-Role", "manager"),
+					Not(HasQueryParam("draft")),
+				),
+			),
+		),
+	)
 ```
 
 ## License
