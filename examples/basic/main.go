@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	. "github.com/arran4/gorillamuxlogic"
+	muxlogic "github.com/arran4/gorillamuxlogic"
 	"github.com/gorilla/mux"
 )
 
@@ -26,7 +26,7 @@ func MethodEquals(method string) mux.MatcherFunc {
 
 func actionPage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Action allowed"))
+	_, _ = w.Write([]byte("Action allowed"))
 }
 
 func main() {
@@ -38,9 +38,9 @@ func main() {
 	//   OR
 	//   (The request has Header "X-Role" set to "user" AND Method is "GET")
 	r.HandleFunc("/action", actionPage).
-		MatcherFunc(Or(
+		MatcherFunc(muxlogic.Or(
 			HeaderEquals("X-Role", "administrator"),
-			And(
+			muxlogic.And(
 				HeaderEquals("X-Role", "user"),
 				MethodEquals("GET"),
 			),
