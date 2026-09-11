@@ -7,7 +7,7 @@ on:
     branches: [main, master]
     tags: ['v*']
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master]
   schedule:
     - cron: '17 3 1 * *'
@@ -59,58 +59,16 @@ jobs:
       run_autofix: ${{ steps.route.outputs.run_autofix }}
       mode: ${{ steps.route.outputs.mode }}
     steps:
+      - uses: actions/checkout@v7
       - id: route
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
           INPUT_MODE: ${{ github.event.inputs.mode }}
           REF_TYPE: ${{ github.ref_type }}
           GITHUB_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          run_code_checks=true
-          run_release=false
-          run_publisher=false
-          run_maintenance=false
-          run_autofix=false
-          mode="validate"
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            :
-          elif [[ "$EVENT_NAME" == "schedule" ]]; then
-            if [[ "${{ github.event.schedule }}" == "17 3 1 * *" ]]; then
-               run_maintenance=true
-               mode="monthly-maintenance"
-            else
-               run_autofix=true
-               mode="lint-fix"
-            fi
-          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            mode="${INPUT_MODE:-validate}"
-            if [[ "$mode" == "lint-fix" ]]; then
-               run_autofix=true
-            elif [[ "$mode" == "publish-tag" ]]; then
-               if [[ "$REF_TYPE" == "tag" && "$GITHUB_REF" == refs/tags/v* ]]; then
-                  run_code_checks=false
-                  run_publisher=true
-               else
-                  echo "Error: publish-tag mode requires a v* tag context. Found: $GITHUB_REF" >&2
-                  sh -c "exit 1"
-               fi
-            elif [[ "$mode" == release-* ]]; then
-               run_release=true
-            elif [[ "$mode" == "monthly-maintenance" ]]; then
-               run_maintenance=true
-            fi
-          elif [[ "$EVENT_NAME" == "push" && "$REF_TYPE" == "tag" && "$GITHUB_REF" == refs/tags/v* ]]; then
-             run_publisher=true
-          fi
-
-          echo "run_code_checks=$run_code_checks" >> "$GITHUB_OUTPUT"
-          echo "run_release=$run_release" >> "$GITHUB_OUTPUT"
-          echo "run_publisher=$run_publisher" >> "$GITHUB_OUTPUT"
-          echo "run_maintenance=$run_maintenance" >> "$GITHUB_OUTPUT"
-          echo "run_autofix=$run_autofix" >> "$GITHUB_OUTPUT"
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          SCHEDULE: ${{ github.event.schedule }}
+        run: .github/scripts/route.sh
 
   autofix:
     name: Autofix Formatting
@@ -238,98 +196,15 @@ jobs:
         uses: arran4/git-tag-inc-action@v1
         with:
           mode: install
-      - name: Verify Exact Origin/Main
+      - name: Prepare and Push Release Tag
         env:
-          GITHUB_REF_NAME: ${{ github.ref }}
+          TARGET_REF: ${{ github.ref }}
+          TARGET_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF_NAME" != "refs/heads/main" && "$GITHUB_REF_NAME" != "refs/heads/master" ]]; then
-            echo "Error: Manual release preparation must run on refs/heads/main or refs/heads/master, got $GITHUB_REF_NAME"
-            sh -c "exit 1"
-          fi
-          DEFAULT_BRANCH=${GITHUB_REF_NAME#refs/heads/}
-          git fetch origin $DEFAULT_BRANCH
-          MAIN_SHA=$(git rev-parse origin/$DEFAULT_BRANCH)
-          if [[ "$MAIN_SHA" != "$GITHUB_SHA" ]]; then
-            echo "Error: Requested release against $GITHUB_SHA but origin/$DEFAULT_BRANCH is at $MAIN_SHA"
-            sh -c "exit 1"
-          fi
-      - name: Calculate or explicitly set version
-        env:
           RELEASE_MODE: ${{ inputs.mode }}
           RELEASE_VERSION_OVERRIDE: ${{ inputs.release_version_override }}
-        run: |
-          set -euo pipefail
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          if [[ -n "$RELEASE_VERSION_OVERRIDE" ]]; then
-             TAG="${RELEASE_VERSION_OVERRIDE#v}"
-             TAG="v${TAG}"
-             echo "Using manual version override: $TAG"
-             if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-                echo "Error: Override $TAG is not a valid release tag shape."
-                sh -c "exit 1"
-             fi
-          else
-             echo "Using arran4/git-tag-inc..."
-             case "$RELEASE_MODE" in
-               release-major) level="major"; suffix="" ;;
-               release-minor) level="minor"; suffix="" ;;
-               release-patch) level="patch"; suffix="" ;;
-               release-test)  level="patch"; suffix="test" ;;
-               release-rc)    level="patch"; suffix="rc" ;;
-               release-alpha) level="patch"; suffix="alpha" ;;
-               *) echo "Unsupported release mode: $RELEASE_MODE" >&2; sh -c "exit 1" ;;
-             esac
-             args=(--print-version-only "$level")
-             [[ -n "$suffix" ]] && args+=("$suffix")
-             TAG="$(git-tag-inc "${args[@]}")"
-          fi
-          echo "Calculated TAG=$TAG"
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-      - name: Tag and push (Idempotent)
-        env:
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REF_NAME: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG" | grep -v '{}$' | awk '{print $1}' || true)
-          PEELED_SHA=$(git ls-remote --tags origin "refs/tags/$TAG^{}" | awk '{print $1}' || true)
-          if [[ -n "$PEELED_SHA" ]]; then
-              REMOTE_SHA="$PEELED_SHA"
-          fi
-
-          if [[ -n "$REMOTE_SHA" ]]; then
-             if [[ "$REMOTE_SHA" == "$GITHUB_SHA" ]]; then
-                echo "Tag $TAG already exists on origin and points to correct SHA ($GITHUB_SHA). Safely retrying publish."
-             else
-                echo "Error: Tag $TAG already exists on origin but points to $REMOTE_SHA, not expected $GITHUB_SHA."
-                sh -c "exit 1"
-             fi
-          else
-             DEFAULT_BRANCH=${GITHUB_REF_NAME#refs/heads/}
-             git fetch origin $DEFAULT_BRANCH
-             CURRENT_MAIN_SHA=$(git rev-parse origin/$DEFAULT_BRANCH)
-             if [[ "$CURRENT_MAIN_SHA" != "$GITHUB_SHA" ]]; then
-                echo "Race condition: origin/$DEFAULT_BRANCH advanced to $CURRENT_MAIN_SHA before tagging"
-                sh -c "exit 1"
-             fi
-
-             git tag -d "$TAG" 2>/dev/null || true
-             git tag "$TAG"
-             git push origin "$TAG" || {
-                REMOTE_SHA=$(git ls-remote --tags origin "$TAG" | awk '{print $1}')
-                if [[ "$REMOTE_SHA" != "$GITHUB_SHA" ]]; then
-                   echo "Race condition: tag pushed remotely with different SHA ($REMOTE_SHA)"
-                   sh -c "exit 1"
-                fi
-             }
-          fi
-      - name: Dispatch Publisher
-        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run ci.yml --ref "$TAG" -f mode=publish-tag
+        run: .github/scripts/prepare-release.sh
 
   publisher:
     name: Release Publisher
