@@ -269,6 +269,7 @@ BARE_REMOTE="$TEMP_BASE/remote.git"
 WORK_REPO="$TEMP_BASE/work"
 
 git init --bare "$BARE_REMOTE" >/dev/null
+git -C "$BARE_REMOTE" symbolic-ref HEAD refs/heads/main
 git clone "$BARE_REMOTE" "$WORK_REPO" >/dev/null 2>&1
 
 cd "$WORK_REPO"
@@ -379,7 +380,7 @@ test_release_prep "Invalid release mode rejected" \
 
 # 7. Stale-main rejection: origin/main advances after dispatch
 CLONE_TWO="$TEMP_BASE/clone2"
-git clone "$BARE_REMOTE" "$CLONE_TWO" >/dev/null 2>&1
+git clone --branch main "$BARE_REMOTE" "$CLONE_TWO" >/dev/null 2>&1
 (
   cd "$CLONE_TWO"
   git config user.name "Other Dev"
@@ -390,7 +391,7 @@ git clone "$BARE_REMOTE" "$CLONE_TWO" >/dev/null 2>&1
   git commit -am "advance main" >/dev/null
   git push origin main >/dev/null 2>&1
 )
-NEW_MAIN_SHA=$(git rev-parse origin/main)
+NEW_MAIN_SHA=$(git -C "$CLONE_TWO" rev-parse HEAD)
 
 test_release_prep "Stale-main rejected (origin/main advanced past dispatch SHA)" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-minor"' \
