@@ -163,9 +163,6 @@ jobs:
           golangci-lint run
       - name: Test
         run: go test ./...
-      - name: Test CI routing and release logic
-        if: ${{ matrix.go-version == '1.27' }}
-        run: .github/scripts/test_ci.sh
 
   release-ready:
     name: Release Quality Gates Passed

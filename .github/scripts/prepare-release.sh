@@ -37,6 +37,7 @@ fi
 
 # 3. Calculate or explicitly set version
 export PATH="$(go env GOPATH 2>/dev/null || true)/bin:$HOME/bin:$PATH"
+GIT_TAG_INC_BIN="${GIT_TAG_INC_BIN:-git-tag-inc}"
 
 if [[ -n "${RELEASE_VERSION_OVERRIDE:-}" ]]; then
   TAG="${RELEASE_VERSION_OVERRIDE#v}"
@@ -62,7 +63,7 @@ else
   esac
   args=(--print-version-only "$level")
   [[ -n "$suffix" ]] && args+=("$suffix")
-  TAG="$(git-tag-inc "${args[@]}")"
+  TAG="$("$GIT_TAG_INC_BIN" "${args[@]}")"
 fi
 
 echo "Calculated TAG=$TAG"

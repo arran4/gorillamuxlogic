@@ -204,6 +204,67 @@ echo "=== 2. Testing Release Precondition & Decision Logic ($RELEASE_SCRIPT) ===
 TEMP_BASE=$(mktemp -d)
 trap 'rm -rf "$TEMP_BASE"' EXIT
 
+# Create a deterministic fake/shim for git-tag-inc to decouple unit tests from external installation
+SHIM_DIR="$TEMP_BASE/shim"
+mkdir -p "$SHIM_DIR"
+SHIM_GIT_TAG_INC="$SHIM_DIR/git-tag-inc"
+
+cat << 'SHIM_EOF' > "$SHIM_GIT_TAG_INC"
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Expected first argument: --print-version-only
+if [[ "${1:-}" != "--print-version-only" ]]; then
+  echo "Error: shim expected first argument to be --print-version-only, got '${1:-}'" >&2
+  exit 1
+fi
+
+level="${2:-}"
+suffix="${3:-}"
+
+case "$level" in
+  major)
+    if [[ -n "$suffix" ]]; then
+      echo "Error: unexpected suffix for major: $suffix" >&2
+      exit 1
+    fi
+    echo "v2.0.0"
+    ;;
+  minor)
+    if [[ -n "$suffix" ]]; then
+      echo "Error: unexpected suffix for minor: $suffix" >&2
+      exit 1
+    fi
+    echo "v1.1.0"
+    ;;
+  patch)
+    case "$suffix" in
+      "")
+        echo "v1.0.1"
+        ;;
+      test)
+        echo "v1.0.1-test1"
+        ;;
+      rc)
+        echo "v1.0.1-rc1"
+        ;;
+      alpha)
+        echo "v1.0.1-alpha1"
+        ;;
+      *)
+        echo "Error: unexpected suffix for patch: $suffix" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "Error: unexpected level: $level" >&2
+    exit 1
+    ;;
+esac
+SHIM_EOF
+chmod +x "$SHIM_GIT_TAG_INC"
+
 BARE_REMOTE="$TEMP_BASE/remote.git"
 WORK_REPO="$TEMP_BASE/work"
 
@@ -239,6 +300,8 @@ test_release_prep() {
       cd "$WORK_REPO"
       export DRY_RUN="true"
       export REMOTE="origin"
+      export GIT_TAG_INC_BIN="$SHIM_GIT_TAG_INC"
+      export PATH="$SHIM_DIR:$PATH"
       set -a
       eval "$env_vars"
       set +a
@@ -259,10 +322,30 @@ test_release_prep() {
   log_pass "$test_name"
 }
 
-# 1. Valid manual release on main with exact SHA matching origin/main
-test_release_prep "Valid manual release on main (release-minor, exact SHA)" \
+# 1. Valid manual release modes on main with exact SHA matching origin/main
+test_release_prep "Valid manual release on main (release-major, verifies shim args & TAG=v2.0.0)" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-major"' \
+  0 "Calculated TAG=v2.0.0"
+
+test_release_prep "Valid manual release on main (release-minor, verifies shim args & TAG=v1.1.0)" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-minor"' \
-  0 "Dry run: verification passed"
+  0 "Calculated TAG=v1.1.0"
+
+test_release_prep "Valid manual release on main (release-patch, verifies shim args & TAG=v1.0.1)" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-patch"' \
+  0 "Calculated TAG=v1.0.1"
+
+test_release_prep "Valid manual release on main (release-test, verifies shim args & TAG=v1.0.1-test1)" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-test"' \
+  0 "Calculated TAG=v1.0.1-test1"
+
+test_release_prep "Valid manual release on main (release-rc, verifies shim args & TAG=v1.0.1-rc1)" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-rc"' \
+  0 "Calculated TAG=v1.0.1-rc1"
+
+test_release_prep "Valid manual release on main (release-alpha, verifies shim args & TAG=v1.0.1-alpha1)" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-alpha"' \
+  0 "Calculated TAG=v1.0.1-alpha1"
 
 # 2. Valid manual release using built-in GitHub runner variable values
 test_release_prep "Valid manual release using runner GITHUB_REF and GITHUB_REF_NAME" \
@@ -289,7 +372,12 @@ test_release_prep "Invalid release ref rejected (tag ref)" \
   'TARGET_REF="refs/tags/v1.0.0"; TARGET_REF_NAME="v1.0.0"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-minor"' \
   1 "Manual release preparation must run on refs/heads/main or refs/heads/master"
 
-# 6. Stale-main rejection: origin/main advances after dispatch
+# 6. Invalid/unsupported release mode rejected
+test_release_prep "Invalid release mode rejected" \
+  'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$INIT_SHA"'"; RELEASE_MODE="release-invalid"' \
+  1 "Unsupported release mode: release-invalid"
+
+# 7. Stale-main rejection: origin/main advances after dispatch
 CLONE_TWO="$TEMP_BASE/clone2"
 git clone "$BARE_REMOTE" "$CLONE_TWO" >/dev/null 2>&1
 (
@@ -313,22 +401,22 @@ cd "$WORK_REPO"
 git pull origin main >/dev/null 2>&1
 CURRENT_SHA=$(git rev-parse HEAD)
 
-# 7. Valid manual version override
+# 8. Valid manual version override
 test_release_prep "Valid manual version override (v2.5.0)" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$CURRENT_SHA"'"; RELEASE_VERSION_OVERRIDE="v2.5.0"' \
   0 "Calculated TAG=v2.5.0"
 
-# 8. Valid manual version override without leading 'v' (auto-normalized)
+# 9. Valid manual version override without leading 'v' (auto-normalized)
 test_release_prep "Valid manual version override normalized (3.1.4 -> v3.1.4)" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$CURRENT_SHA"'"; RELEASE_VERSION_OVERRIDE="3.1.4"' \
   0 "Calculated TAG=v3.1.4"
 
-# 9. Invalid manual version override format - MUST BE REJECTED
+# 10. Invalid manual version override format - MUST BE REJECTED
 test_release_prep "Invalid manual version override format rejected" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$CURRENT_SHA"'"; RELEASE_VERSION_OVERRIDE="not-a-valid-tag"' \
   1 "is not a valid release tag shape"
 
-# 10. Tag collision with matching SHA - safe retry allowed
+# 11. Tag collision with matching SHA - safe retry allowed
 git tag v2.5.0 "$CURRENT_SHA"
 git push origin v2.5.0 >/dev/null 2>&1
 
@@ -336,7 +424,7 @@ test_release_prep "Tag collision with matching SHA (safe retry)" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$CURRENT_SHA"'"; RELEASE_VERSION_OVERRIDE="v2.5.0"' \
   0 "Safely retrying publish"
 
-# 11. Tag collision with different SHA - MUST BE REJECTED
+# 12. Tag collision with different SHA - MUST BE REJECTED
 # Point remote tag v2.5.0 to INIT_SHA while main is at CURRENT_SHA
 git tag -f v2.5.0 "$INIT_SHA" >/dev/null 2>&1
 git push -f origin v2.5.0 >/dev/null 2>&1
@@ -345,7 +433,7 @@ test_release_prep "Tag collision with different SHA rejected" \
   'TARGET_REF="refs/heads/main"; TARGET_REF_NAME="main"; GITHUB_SHA="'"$CURRENT_SHA"'"; RELEASE_VERSION_OVERRIDE="v2.5.0"' \
   1 "already exists on origin but points to"
 
-# 12. Safety proof: Verify that dry-run mode NEVER creates or pushes tags
+# 13. Safety proof: Verify that dry-run mode NEVER creates or pushes tags
 REMOTE_TAGS=$(git ls-remote --tags origin | awk '{print $2}' | sort)
 EXPECTED_TAGS=$(printf "refs/tags/v1.0.0\nrefs/tags/v2.5.0")
 if [[ "$REMOTE_TAGS" == "$EXPECTED_TAGS" ]]; then
