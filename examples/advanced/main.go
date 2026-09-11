@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	. "github.com/arran4/gorillamuxlogic"
+	muxlogic "github.com/arran4/gorillamuxlogic"
 	"github.com/gorilla/mux"
 )
 
@@ -33,7 +33,7 @@ func HeaderEquals(name, value string) mux.MatcherFunc {
 
 func reportPage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Report generated"))
+	_, _ = w.Write([]byte("Report generated"))
 }
 
 func main() {
@@ -50,13 +50,13 @@ func main() {
 	//      )
 	r.HandleFunc("/report", reportPage).
 		MatcherFunc(
-			And(
+			muxlogic.And(
 				MethodEquals("GET"),
-				Or(
+				muxlogic.Or(
 					HasQueryParam("admin"),
-					And(
+					muxlogic.And(
 						HeaderEquals("X-Role", "manager"),
-						Not(HasQueryParam("draft")),
+						muxlogic.Not(HasQueryParam("draft")),
 					),
 				),
 			),
@@ -70,7 +70,7 @@ func main() {
 		createRequest("POST", "/report?admin=1", ""),
 		// 3. GET with manager role, not draft -> Matches
 		createRequest("GET", "/report", "manager"),
-		// 4. GET with manager role, but is draft -> Does NOT match (Not(draft) fails)
+		// 4. GET with manager role, but is draft -> Does NOT match (muxlogic.Not(draft) fails)
 		createRequest("GET", "/report?draft=1", "manager"),
 		// 5. GET with no role or params -> Does NOT match
 		createRequest("GET", "/report", ""),

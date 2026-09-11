@@ -21,7 +21,7 @@ func main() {
 
 	// Route requires two headers using And
 	r.HandleFunc("/and", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "matched AND route")
+		_, _ = fmt.Fprintln(w, "matched AND route")
 	}).MatcherFunc(logic.And(
 		HeaderEquals("X-One", "1"),
 		HeaderEquals("X-Two", "2"),
@@ -29,7 +29,7 @@ func main() {
 
 	// Route matches if either header is present using Or
 	r.HandleFunc("/or", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "matched OR route")
+		_, _ = fmt.Fprintln(w, "matched OR route")
 	}).MatcherFunc(logic.Or(
 		HeaderEquals("X-Alpha", "A"),
 		HeaderEquals("X-Beta", "B"),
@@ -37,7 +37,7 @@ func main() {
 
 	// Route matches when the header is NOT present using Not
 	r.HandleFunc("/not", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "matched NOT route")
+		_, _ = fmt.Fprintln(w, "matched NOT route")
 	}).MatcherFunc(logic.Not(
 		HeaderEquals("X-Block", "true"),
 	))
